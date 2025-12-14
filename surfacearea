@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>表面積與溶解速率模擬</title>
+    <!-- 載入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 設定字體為 Inter */
+        html { font-family: 'Inter', sans-serif; }
+        /* 設置畫布樣式 */
+        #simulationCanvas {
+            border: 2px solid #3b82f6;
+            background-color: #bfdbfe; /* 淺藍色背景代表水 */
+            margin: 0 auto;
+            display: block;
+            border-radius: 8px;
+        }
+        /* 單位顯示使用粗體強調 */
+        .unit-display {
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 flex flex-col items-center justify-start min-h-screen p-4">
+
+    <div class="max-w-4xl w-full">
+        <h1 class="text-3xl font-bold text-center text-blue-800 mb-4 rounded-lg bg-white p-2 shadow-md">
+            表面積對溶解速率的影響模擬
+        </h1>
+
+        <!-- 講解區塊 -->
+        <div class="mb-6 p-4 bg-white rounded-lg shadow-xl border-l-4 border-blue-500">
+            <h2 class="text-xl font-semibold text-gray-700 mb-2">微觀解釋：表面積原理</h2>
+            <p class="text-gray-600 mb-2">
+                兩個容器中的糖的總質量（體積）是<strong class="text-blue-600">相同的</strong>。溶解過程發生在固體顆粒與溶劑（水）接觸的表面。
+            </p>
+            <ul class="list-disc list-inside ml-4 text-gray-600">
+                <li><strong class="text-red-600">大顆粒：</strong> 只有少數表面積暴露在水分子中。</li>
+                <li><strong class="text-green-600">小顆粒（糖粉）：</strong> 總表面積大，<strong class="underline">更多水分子可以同時接觸</strong>，加速溶解。</li>
+            </ul>
+            <p class="font-medium mt-2 text-blue-700">
+                <strong class="text-blue-500">結論：</strong> 顆粒愈小，與溶劑接觸的<span class="font-extrabold underline">總表面積愈大</span>，因此溶解反應的發生處愈多，溶解速率也就<span class="font-extrabold underline">愈高</span>。
+            </p>
+        </div>
+
+        <!-- 畫布容器 -->
+        <div class="flex justify-center mb-6">
+            <canvas id="simulationCanvas" width="800" height="400"></canvas>
+        </div>
+
+        <!-- 資訊面板 -->
+        <div id="infoPanel" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- 左側：大顆粒資訊 -->
+            <div class="p-4 bg-red-100 border-l-4 border-red-500 rounded-lg shadow">
+                <h3 class="font-bold text-lg text-red-700 mb-2">左容器：大顆粒糖塊</h3>
+                <p class="text-red-600">初始總體積（V）：<span id="volA" class="font-mono unit-display"></span></p>
+                <p class="text-red-600">初始總表面積（SA）：<span id="saA" class="font-mono unit-display"></span></p>
+                <p class="text-red-600">溶解進度：<span id="progressA" class="font-mono"></span></p>
+            </div>
+            <!-- 右側：小顆粒資訊 -->
+            <div class="p-4 bg-green-100 border-l-4 border-green-500 rounded-lg shadow">
+                <h3 class="font-bold text-lg text-green-700 mb-2">右容器：小顆粒糖粉</h3>
+                <p class="text-green-600">初始總體積（V）：<span id="volB" class="font-mono unit-display"></span></p>
+                <p class="text-green-600">初始總表面積（SA）：<span id="saB" class="font-mono unit-display"></span></p>
+                <p class="text-red-600">溶解進度：<span id="progressB" class="font-mono"></span></p>
+            </div>
+        </div>
+
+        <button id="resetButton" class="mt-6 w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md transition duration-300">
+            重置模擬
+        </button>
+    </div>
+    
+    <!-- 增加底部的空間，確保按鈕不會被底部邊緣遮擋 -->
+    <div class="h-8"></div> 
+
+    <script>
+        // 將所有程式碼包裹在 IIFE 中以創建局部作用域
+        (function() {
+            // 設定 Canvas 和上下文
+            const canvas = document.getElementById('simulationCanvas');
+            const ctx = canvas.getContext('2d');
+            const W = canvas.width;
+            const H = canvas.height;
+            
+            // 分割成兩個區域
+            const MID = W / 2;
+
+            // 資訊面板元素
+            const saAElement = document.getElementById('saA');
+            const volAElement = document.getElementById('volA');
+            const progressAElement = document.getElementById('progressA');
+            const saBElement = document.getElementById('saB');
+            const volBElement = document.getElementById('volB');
+            const progressBElement = document.getElementById('progressB');
+            const resetButton = document.getElementById('resetButton');
+
+            // 模擬設定
+            let particlesA = []; // 大顆粒
+            let particlesB = []; // 小顆粒
+            const NUM_WATER_MOLECULES = 3000; // 模擬水分子數量
+            let waterMolecules = []; // 水分子陣列
+            let initialTotalVolume = 0;
+            let animationFrameId = null;
+            let lastTime = 0;
+            
+            // 數學常數：用於計算初始表面積
+            const LARGE_SIZE = 40; // 大顆粒邊長
+            const SMALL_SIZE = 5; // 小顆粒邊長
+            const DISSOLUTION_FACTOR_A = 1.0; 
+            const DISSOLUTION_FACTOR_B = 1.0; 
+
+            // =========================
+            // 粒子類別 (SugarParticle)
+            // =========================
+            class SugarParticle {
+                constructor(x, y, initialSize) {
+                    this.x = x;
+                    this.y = y;
+                    this.size = initialSize;
+                    this.initialSize = initialSize;
+                    this.initialVolume = Math.pow(initialSize, 3);
+                    this.currentVolume = this.initialVolume;
+                    this.dissolutionFactor = 1; 
+                    this.isDissolved = false;
+                }
+
+                get surfaceArea() {
+                    return 6 * Math.pow(this.size, 2);
+                }
+
+                update(deltaTime) {
+                    if (this.isDissolved) return;
+                    const dV_dt = -this.dissolutionFactor * this.surfaceArea * deltaTime * 0.0002; 
+                    this.currentVolume += dV_dt;
+                    
+                    if (this.currentVolume <= 0) {
+                        this.currentVolume = 0;
+                        this.size = 0;
+                        this.isDissolved = true;
+                    } else {
+                        this.size = Math.pow(this.currentVolume, 1/3);
+                    }
+                }
+
+                draw(ctx, color) {
+                    if (this.isDissolved || this.size < 0.5) return;
+                    
+                    // 繪製正方形/立方體投影
+                    ctx.fillStyle = color;
+                    ctx.fillRect(
+                        this.x - this.size / 2, 
+                        this.y - this.size / 2, 
+                        this.size, 
+                        this.size
+                    );
+                    
+                    // 增加邊框，使顆粒更清晰
+                    ctx.strokeStyle = '#333';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(
+                        this.x - this.size / 2, 
+                        this.y - this.size / 2, 
+                        this.size, 
+                        this.size
+                    );
+                }
+            }
+
+            // =========================
+            // 水分子類別 (WaterMolecule)
+            // =========================
+            class WaterMolecule {
+                constructor(x, y) {
+                    this.x = x;
+                    this.y = y;
+                    this.radius = 1;
+                    // 較慢的速度，模擬熱運動
+                    this.vx = (Math.random() - 0.5) * 0.4; 
+                    this.vy = (Math.random() - 0.5) * 0.4; 
+                }
+
+                update() {
+                    this.x += this.vx;
+                    this.y += this.vy;
+
+                    // 邊界反彈
+                    if (this.x < 0 || this.x > W) this.vx *= -1;
+                    if (this.y < 0 || this.y > H) this.vy *= -1;
+
+                    // 輕微隨機擾動，模擬液體中的布朗運動
+                    this.vx += (Math.random() - 0.5) * 0.05;
+                    this.vy += (Math.random() - 0.5) * 0.05;
+                    this.vx = Math.max(-0.4, Math.min(0.4, this.vx));
+                    this.vy = Math.max(-0.4, Math.min(0.4, this.vy));
+                }
+
+                draw(ctx) {
+                    // 半透明白色，模擬水中的氣泡或微粒
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)'; 
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+
+            // =========================
+            // 模擬設定
+            // =========================
+            function setupSimulation() {
+                particlesA = [];
+                particlesB = [];
+                waterMolecules = [];
+                
+                // 1. 設定大顆粒 (A)
+                const volumeA = Math.pow(LARGE_SIZE, 3);
+                const numA = 2; // 使用 2 顆大糖塊
+                
+                initialTotalVolume = volumeA * numA; 
+                
+                for (let i = 0; i < numA; i++) {
+                    const x = MID / 2 + (i === 0 ? -20 : 20);
+                    const y = H / 2 + (i === 0 ? -20 : 20);
+                    const p = new SugarParticle(x, y, LARGE_SIZE);
+                    p.dissolutionFactor = DISSOLUTION_FACTOR_A;
+                    particlesA.push(p);
+                }
+                
+                // 2. 設定小顆粒 (B) - 保持總體積與 A 大致相同
+                const volumeB = Math.pow(SMALL_SIZE, 3);
+                const numB = Math.ceil(initialTotalVolume / volumeB); 
+                
+                const areaWidth = MID - 80;
+                const areaHeight = H - 80;
+                const startX = MID + 40;
+                
+                for (let i = 0; i < numB; i++) {
+                    const x = startX + Math.random() * areaWidth;
+                    const y = 40 + Math.random() * areaHeight;
+                    const p = new SugarParticle(x, y, SMALL_SIZE);
+                    p.dissolutionFactor = DISSOLUTION_FACTOR_B;
+                    particlesB.push(p);
+                }
+
+                // 3. 初始化水分子
+                for (let i = 0; i < NUM_WATER_MOLECULES; i++) {
+                    const x = Math.random() * W;
+                    const y = Math.random() * H;
+                    waterMolecules.push(new WaterMolecule(x, y));
+                }
+                
+                updateInfoPanel();
+                
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                }
+                lastTime = 0;
+                animationFrameId = requestAnimationFrame(animate);
+            }
+
+            function calculateMetrics(particles) {
+                let totalSA = 0;
+                let currentVolume = 0;
+                let initialVolume = 0;
+                
+                particles.forEach(p => {
+                    totalSA += p.surfaceArea;
+                    currentVolume += p.currentVolume;
+                    initialVolume += p.initialVolume;
+                });
+                
+                const progress = (1 - (currentVolume / initialVolume)) * 100;
+                
+                return { totalSA, currentVolume, initialVolume, progress };
+            }
+
+            function updateInfoPanel() {
+                const metricsA = calculateMetrics(particlesA);
+                const metricsB = calculateMetrics(particlesB);
+
+                if (saAElement.textContent === "" || saAElement.textContent.includes('塊')) {
+                    // 使用 Unicode 符號 $\text{cm}^3$ (cm³)
+                    volAElement.textContent = `${metricsA.initialVolume.toFixed(0)} cm³`;
+                    volBElement.textContent = `${metricsB.initialVolume.toFixed(0)} cm³`;
+                    
+                    // 顯示初始總表面積，使用 Unicode 符號 $\text{cm}^2$ (cm²)
+                    saAElement.textContent = `${metricsA.totalSA.toFixed(0)} cm² (${particlesA.length} 塊)`;
+                    saBElement.textContent = `${metricsB.totalSA.toFixed(0)} cm² (${particlesB.length} 粒)`;
+                }
+
+                progressAElement.textContent = `${metricsA.progress.toFixed(2)}%`;
+                progressBElement.textContent = `${metricsB.progress.toFixed(2)}%`;
+                
+                const colorA = metricsA.progress < 100 ? 'text-red-600' : 'text-gray-500';
+                const colorB = metricsB.progress < 100 ? 'text-green-600' : 'text-gray-500';
+
+                progressAElement.className = `font-mono ${colorA} font-bold`;
+                progressBElement.className = `font-mono ${colorB} font-bold`;
+
+                if (metricsA.progress >= 100 && metricsB.progress >= 100) {
+                    cancelAnimationFrame(animationFrameId);
+                    console.log("模擬結束");
+                    saAElement.textContent = "";
+                    saBElement.textContent = "";
+                }
+            }
+
+            function drawContainers() {
+                // 繪製分隔線
+                ctx.beginPath();
+                ctx.strokeStyle = '#3b82f6';
+                ctx.lineWidth = 3;
+                ctx.moveTo(MID, 0);
+                ctx.lineTo(MID, H);
+                ctx.stroke();
+
+                // 標題
+                ctx.fillStyle = '#1d4ed8';
+                ctx.font = '24px Inter, sans-serif';
+                ctx.textAlign = 'center';
+
+                ctx.fillText('A. 大顆粒糖塊 (SA 較小)', MID / 2, 30);
+                ctx.fillText('B. 小顆粒糖粉 (SA 較大)', MID * 1.5, 30);
+
+                // 繪製水面線
+                ctx.beginPath();
+                ctx.strokeStyle = '#3b82f6';
+                ctx.lineWidth = 2;
+                ctx.moveTo(0, 50);
+                ctx.lineTo(W, 50);
+                ctx.stroke();
+                
+                ctx.fillStyle = '#2563eb';
+                ctx.font = '16px Inter, sans-serif';
+                ctx.fillText('溶劑 (水)', MID / 2, 70);
+                ctx.fillText('溶劑 (水)', MID * 1.5, 70);
+            }
+
+            function animate(time) {
+                if (lastTime === 0) lastTime = time;
+                const deltaTime = time - lastTime;
+                lastTime = time;
+
+                // 清除畫布
+                ctx.clearRect(0, 0, W, H);
+                
+                // 1. 更新並繪製水分子 (必須先繪製，使其位於背景)
+                waterMolecules.forEach(m => {
+                    m.update();
+                    m.draw(ctx);
+                });
+                
+                // 2. 繪製容器和標籤
+                drawContainers();
+
+                // 3. 更新和繪製粒子 A (大顆粒)
+                particlesA.forEach(p => {
+                    p.update(deltaTime);
+                    p.draw(ctx, '#ef4444'); // 紅色
+                });
+
+                // 4. 更新和繪製粒子 B (小顆粒)
+                particlesB.forEach(p => {
+                    p.update(deltaTime);
+                    p.draw(ctx, '#10b981'); // 綠色
+                });
+                
+                // 5. 更新資訊面板
+                updateInfoPanel();
+
+                // 繼續動畫，直到溶解完畢
+                const metricsA = calculateMetrics(particlesA);
+                const metricsB = calculateMetrics(particlesB);
+
+                if (metricsA.progress < 100 || metricsB.progress < 100) {
+                    animationFrameId = requestAnimationFrame(animate);
+                }
+            }
+
+            // 事件監聽器
+            resetButton.addEventListener('click', setupSimulation);
+
+            // 啟動模擬
+            setupSimulation();
+        })(); // 結束 IIFE
+
+    </script>
+</body>
+</html>
